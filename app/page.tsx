@@ -47,6 +47,12 @@ function filterByMolecule(rows: MasterRow[], molecule: string): MasterRow[] {
   })
 }
 
+const HIDDEN_COLUMNS = new Set(['Molecule'])
+
+function isHiddenColumn(h: string): boolean {
+  return HIDDEN_COLUMNS.has(String(h).trim())
+}
+
 export default function DashboardPage() {
   const [selected, setSelected] = useState<Chemical>('Methimazole')
   const [headers, setHeaders] = useState<string[]>([])
@@ -87,6 +93,7 @@ export default function DashboardPage() {
   }, [])
 
   const rows = useMemo(() => filterByMolecule(allRows, selected), [allRows, selected])
+  const displayHeaders = useMemo(() => headers.filter((h) => !isHiddenColumn(h)), [headers])
   const { value: sumValue, volume: sumVolume } = useMemo(() => totals(rows), [rows])
 
   return (
@@ -206,7 +213,7 @@ export default function DashboardPage() {
                     <table className="min-w-full text-sm text-left border-collapse">
                       <thead className="sticky top-0 z-20 shadow-sm">
                         <tr className="bg-gradient-to-r from-slate-800 via-slate-800 to-sky-900 text-white">
-                          {headers.map((h) => (
+                          {displayHeaders.map((h) => (
                             <th
                               key={h}
                               scope="col"
@@ -227,7 +234,7 @@ export default function DashboardPage() {
                               ri % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
                             }`}
                           >
-                            {headers.map((h) => (
+                            {displayHeaders.map((h) => (
                               <td
                                 key={h}
                                 className={`px-4 py-3 whitespace-nowrap text-slate-800 ${
