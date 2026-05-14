@@ -13,6 +13,18 @@ export type MasterRow = Record<string, string | number | null>
 type MasterPayload = {
   headers: string[]
   rows: MasterRow[]
+  meta?: {
+    pivotGrandTotals?: Record<string, number>
+  }
+}
+
+function formatCagr(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  const pct = Math.abs(value) <= 1 ? value * 100 : value
+  return `${pct.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`
 }
 
 function formatCell(value: string | number | null): string {
@@ -24,18 +36,37 @@ function formatCell(value: string | number | null): string {
   return String(value)
 }
 
+function formatMasterCell(header: string, value: string | number | null): string {
+  const h = String(header).trim()
+  const isCagr = /CAGR$/i.test(h)
+  if (isCagr && typeof value === 'number') return formatCagr(value)
+  return formatCell(value)
+}
+
 function isNumericHeader(h: string): boolean {
-  return h === '2025 Value' || h === '2025 Volume'
+  const t = String(h).trim()
+  return /\d{4}\s+(Value|Volume)$/.test(t) || /CAGR$/i.test(t)
+}
+
+/** Parses JSON / Excel-derived cells so KPI totals stay correct even if values are numeric strings. */
+function toFiniteNumber(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+  if (typeof raw === 'string') {
+    const n = Number(String(raw).trim().replace(/,/g, ''))
+    return Number.isFinite(n) ? n : null
+  }
+  return null
 }
 
 function totals(rows: MasterRow[]) {
   let value = 0
   let volume = 0
   for (const r of rows) {
-    const v = r['2025 Value']
-    const vol = r['2025 Volume']
-    if (typeof v === 'number') value += v
-    if (typeof vol === 'number') volume += vol
+    const v = toFiniteNumber(r['2025 Value'])
+    const vol = toFiniteNumber(r['2025 Volume'])
+    if (v !== null) value += v
+    if (vol !== null) volume += vol
   }
   return { value, volume }
 }
@@ -100,6 +131,7 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<ViewTab>('methimazole')
   const [headers, setHeaders] = useState<string[]>([])
   const [allRows, setAllRows] = useState<MasterRow[]>([])
+  const [dataMeta, setDataMeta] = useState<MasterPayload['meta']>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -120,11 +152,13 @@ export default function DashboardPage() {
         }
         setHeaders(body.headers)
         setAllRows(body.rows)
+        setDataMeta(body.meta)
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Failed to load master data.')
           setHeaders([])
           setAllRows([])
+          setDataMeta(undefined)
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -137,7 +171,13 @@ export default function DashboardPage() {
 
   const rows = useMemo(() => filterByMolecule(allRows, MOLECULE), [allRows])
   const displayHeaders = useMemo(() => headers.filter((h) => !isHiddenColumn(h)), [headers])
-  const { value: sumValue, volume: sumVolume } = useMemo(() => totals(rows), [rows])
+  const summed = useMemo(() => totals(rows), [rows])
+  const pivotVal = toFiniteNumber(dataMeta?.pivotGrandTotals?.['2025 Value'])
+  const pivotVol = toFiniteNumber(dataMeta?.pivotGrandTotals?.['2025 Volume'])
+  const sumValue = pivotVal !== null ? pivotVal : summed.value
+  const sumVolume = pivotVol !== null ? pivotVol : summed.volume
+  const valueSubtitle = pivotVal !== null ? 'Pivot Table grand total' : 'Filtered sum'
+  const volumeSubtitle = pivotVol !== null ? 'Pivot Table grand total' : 'Filtered sum'
 
   const subBarRight =
     activeTab === 'methimazole' ? (
@@ -243,14 +283,14 @@ export default function DashboardPage() {
                       <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
                         {sumValue.toLocaleString()}
                       </p>
-                      <p className="text-xs text-slate-500 mt-1">Filtered sum</p>
+                      <p className="text-xs text-slate-500 mt-1">{valueSubtitle}</p>
                     </div>
                     <div className="rounded-2xl border border-slate-200/90 bg-white px-5 py-4 shadow-md shadow-slate-200/40 ring-1 ring-slate-900/5">
                       <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Σ 2025 volume</p>
                       <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
                         {sumVolume.toLocaleString()}
                       </p>
-                      <p className="text-xs text-slate-500 mt-1">Filtered sum</p>
+                      <p className="text-xs text-slate-500 mt-1">{volumeSubtitle}</p>
                     </div>
                   </div>
 
@@ -300,7 +340,7 @@ export default function DashboardPage() {
                                       isNumericHeader(h) ? 'text-right tabular-nums font-medium text-slate-900' : ''
                                     }`}
                                   >
-                                    {formatCell(row[h] ?? null)}
+                                    {formatMasterCell(h, row[h] ?? null)}
                                   </td>
                                 ))}
                               </tr>

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "export-master-data": "node scripts/export-master-data.cjs",
+    "export-master-from-mainchemical": "node scripts/export-mainchemical-master-json.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
